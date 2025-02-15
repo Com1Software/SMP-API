@@ -1,49 +1,64 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"time"
+	"log"
+
+	"github.com/go-resty/resty/v2"
 )
 
 func main() {
-	url := "https://bsky.app/xrpc/com.atproto.repo.createRecord"
-	accessJWT := "YOUR_ACCESS_JWT"
-	blueskyHandle := "YOUR_BLUESKY_HANDLE"
+	client := resty.New()
 
-	record := map[string]interface{}{
-		"text":      "Hello world! I posted this via the API.",
-		"createdAt": time.Now().UTC().Format(time.RFC3339),
-	}
-	data := map[string]interface{}{
-		"repo":       blueskyHandle,
-		"collection": "app.bsky.feed.post",
-		"record":     record,
-	}
+	// Replace these with your actual credentials and endpoints
+	loginEndpoint := "https://bsky.social/xrpc/com.atproto.server.createSession"
+	postEndpoint := "https://bsky.social/xrpc/com.atproto.feed.createPost"
+	username := "yourname" // Add your username
+	password := "password" // Add your password
+	message := "Hello, Bluesky!"
 
-	jsonData, err := json.Marshal(data)
+	// Step 1: Obtain a session token
+	loginResponse, err := client.R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]string{
+			"identifier": username,
+			"password":   password,
+		}).
+		Post(loginEndpoint)
+
 	if err != nil {
-		fmt.Println("Error marshalling JSON:", err)
-		return
+		log.Fatalf("Error obtaining token: %v", err)
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if loginResponse.StatusCode() != 200 {
+		log.Fatalf("Failed to obtain token: %s", loginResponse.String())
+	}
+
+	// Parse the session token from the response
+	var result map[string]interface{}
+	if err := json.Unmarshal(loginResponse.Body(), &result); err != nil {
+		log.Fatalf("Error parsing token: %v", err)
+	}
+
+	sessionToken, ok := result["token"].(string)
+	if !ok {
+		log.Fatalf("Invalid token format")
+	}
+
+	// Step 2: Use the session token to post a message
+	postResponse, err := client.R().
+		SetAuthToken(sessionToken). // Use the correct method to set the token
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]string{
+			"text": message, // Assuming the API expects a field named "text"
+		}).
+		Post(postEndpoint)
+
 	if err != nil {
-		fmt.Println("Error creating request:", err)
-		return
+		log.Fatalf("Error posting message: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+accessJWT)
-	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("Error making request:", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	fmt.Println("Response Status:", resp.Status)
+	fmt.Println("Response Status Code:", postResponse.StatusCode())
+	fmt.Println("Response Body:", string(postResponse.Body()))
 }
